@@ -1,3 +1,5 @@
 /target
 dump*
 test*
+runqlat.wasm
+wasi-test.wasm

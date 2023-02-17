@@ -6,10 +6,9 @@ use state::AppState;
 use wasmtime::{Engine, Linker, Module, Store};
 use wasmtime_wasi::WasiCtxBuilder;
 
-use crate::func::{
-    wasm_attach_bpf_program, wasm_bpf_buffer_poll, wasm_bpf_map_fd_by_name, wasm_bpf_map_operate,
-    wasm_close_bpf_object, wasm_load_bpf_object,
-};
+use crate::func::{load::wasm_load_bpf_object, close::wasm_close_bpf_object, attach::wasm_attach_bpf_program, poll::wasm_bpf_buffer_poll, fd_by_name::wasm_bpf_map_fd_by_name, map_operate::wasm_bpf_map_operate};
+
+
 
 mod func;
 mod log_format;
@@ -57,11 +56,11 @@ fn main() -> anyhow::Result<()> {
         .with_context(|| anyhow!("Failed to link module"))?;
 
     linker
-        .get(&mut store, "", "__main_argc_argv")
-        .with_context(|| anyhow!("Failed to get `main` function"))?
+        .get(&mut store, "", "_start")
+        .with_context(|| anyhow!("Failed to get _start function"))?
         .into_func()
         .with_context(|| anyhow!("Failed to cast to func"))?
-        .typed::<(u32, i32), i32>(&mut store)?
-        .call(&mut store, (0, 0))?;
+        .typed::<(), ()>(&mut store)?
+        .call(&mut store, ())?;
     return Ok(());
 }
