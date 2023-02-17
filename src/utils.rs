@@ -1,8 +1,8 @@
 use std::ffi::CStr;
 
-use crate::AppState;
+use crate::{AppState, state::CallerType};
 use anyhow::{anyhow, bail, Context};
-use wasmtime::{Caller, Memory, Table};
+use wasmtime::{Caller, Memory, Table, WasmParams, WasmResults};
 
 const INDIRECT_TABLE_NAME: &str = "__indirect_function_table";
 
@@ -16,6 +16,7 @@ pub trait CallerUtils {
     // Terminated zero will be included
     fn read_wasm_string_slice_include_zero(&mut self, offset: usize) -> anyhow::Result<&[u8]>;
     fn read_zero_terminated_str(&mut self, offset: usize) -> anyhow::Result<&str>;
+    unsafe fn raw_pointer_at_unchecked(&mut self, offset: usize) -> *const u8;
 }
 
 impl CallerUtils for Caller<'_, AppState> {
@@ -94,6 +95,44 @@ impl CallerUtils for Caller<'_, AppState> {
         return Ok(c_str
             .to_str()
             .with_context(|| anyhow!("Failed to decode bytes into utf8 str"))?);
+    }
+
+    unsafe fn raw_pointer_at_unchecked(&mut self, offset: usize) -> *const u8 {
+        let memory = self.get_memory().expect("Expected memory exported");
+        memory.data_ptr(self).add(offset)
+    }
+}
+
+pub trait FunctionQuickCall {
+    fn perform_indirect_call<Params: WasmParams, Return: WasmResults>(
+        &mut self,
+        index: u32,
+        params: Params,
+    ) -> anyhow::Result<Return>;
+}
+
+impl FunctionQuickCall for CallerType<'_> {
+    fn perform_indirect_call<Params: WasmParams, Return: WasmResults>(
+        &mut self,
+        index: u32,
+        params: Params,
+    ) -> anyhow::Result<Return> {
+        let table = self
+            .get_indirect_call_table()
+            .expect("Indirect call table expected!");
+        let item = table
+            .get(&mut *self, index)
+            .with_context(|| anyhow!("No func with index {} found", index))?;
+        let func = item
+            .funcref()
+            .with_context(|| anyhow!("Expect element with index {} to be a function", index))?
+            .with_context(|| anyhow!("Invalid type, function expected"))?;
+        let ret_val = func
+            .typed::<Params, Return>(&mut *self)
+            .with_context(|| anyhow!("Invalid function type provides"))?
+            .call(self, params)
+            .with_context(|| anyhow!("Failed to call function"))?;
+        return Ok(ret_val);
     }
 }
 
