@@ -16,7 +16,7 @@ mod state;
 mod utils;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = "A WebAssembly runtime for eBPF user-space programs.")]
 struct CommandArgs {
     #[arg(help = "The WebAssembly Module file to run")]
     wasm_module_file: String,
