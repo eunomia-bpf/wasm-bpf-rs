@@ -94,9 +94,7 @@ pub fn wasm_bpf_buffer_poll(
             }
         };
         let mut buffer = unsafe { BpfBuffer::bpf_buffer__new(map_ptr as *mut bpf_map) };
-        unsafe {
-            buffer.bpf_buffer__open(sample_function_wrapper, Default::default());
-        }
+        buffer.bpf_buffer__open(sample_function_wrapper, Default::default());
         object.buffer = Some(buffer);
     }
     // modify the context we passed to bpf_buffer__open each time before we call bpf_buffer_poll
@@ -109,7 +107,7 @@ pub fn wasm_bpf_buffer_poll(
     context.raw_wasm_data_buffer = data;
     context.store_ptr = caller_ptr;
     context.wasm_ctx = ctx;
-    let res = unsafe { buffer.bpf_buffer__poll(timeout_ms) };
+    let res = buffer.bpf_buffer__poll(timeout_ms);
     if res < 0 {
         debug!("Failed to poll: {}", res);
         return res;
@@ -163,7 +161,7 @@ impl BpfBuffer {
             wasm_sample_fn: 0,
         }
     }
-    pub unsafe fn bpf_buffer__open(
+    pub fn bpf_buffer__open(
         &mut self,
         sample_callback_wrapper: SampleCallbackWrapper,
         host_ctx: SampleContext,
@@ -174,25 +172,24 @@ impl BpfBuffer {
             .as_ref()
             .map(|v| &**v as *const SampleContext as *mut c_void)
             .unwrap();
-        let fd = bpf_map__fd(self.events);
+        let fd = unsafe { bpf_map__fd(self.events) };
         let inner = match self.map_type {
             BPF_MAP_TYPE_PERF_EVENT_ARRAY => {
                 self.host_sample_fn = Some(sample_callback_wrapper);
-                BufferInnerType::PerfBuf(perf_buffer__new(
-                    fd,
-                    PERF_BUFFER_PAGES as _,
-                    Some(perfbuf_sample_fn),
-                    None,
-                    ctx_ptr,
-                    null(),
-                ))
+                BufferInnerType::PerfBuf(unsafe {
+                    perf_buffer__new(
+                        fd,
+                        PERF_BUFFER_PAGES as _,
+                        Some(perfbuf_sample_fn),
+                        None,
+                        ctx_ptr,
+                        null(),
+                    )
+                })
             }
-            BPF_MAP_TYPE_RINGBUF => BufferInnerType::RingBuffer(ring_buffer__new(
-                fd,
-                Some(sample_callback_wrapper),
-                ctx_ptr,
-                null(),
-            )),
+            BPF_MAP_TYPE_RINGBUF => BufferInnerType::RingBuffer(unsafe {
+                ring_buffer__new(fd, Some(sample_callback_wrapper), ctx_ptr, null())
+            }),
             _ => {
                 return 0;
             }
@@ -203,10 +200,10 @@ impl BpfBuffer {
         self.inner = inner;
         return 0;
     }
-    pub unsafe fn bpf_buffer__poll(&self, timeout_ms: i32) -> i32 {
+    pub fn bpf_buffer__poll(&self, timeout_ms: i32) -> i32 {
         match self.inner {
-            BufferInnerType::PerfBuf(s) => perf_buffer__poll(s, timeout_ms),
-            BufferInnerType::RingBuffer(s) => ring_buffer__poll(s, timeout_ms),
+            BufferInnerType::PerfBuf(s) => unsafe { perf_buffer__poll(s, timeout_ms) },
+            BufferInnerType::RingBuffer(s) => unsafe { ring_buffer__poll(s, timeout_ms) },
             BufferInnerType::None => EINVAL,
         }
     }
