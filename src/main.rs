@@ -13,7 +13,7 @@ use crate::func::{
 };
 
 pub const MAIN_MODULE_NAME: &str = "main";
-pub const POLL_WRAPPER_FUNCTION_NAME:&str = "wasm_bpf_buffer_poll";
+pub const POLL_WRAPPER_FUNCTION_NAME: &str = "wasm_bpf_buffer_poll";
 mod func;
 mod log_format;
 mod state;
@@ -31,8 +31,8 @@ struct CommandArgs {
     wasm_module_file: String,
     #[arg(long, help = "Display more logs")]
     verbose: bool,
-    #[arg(short = 'w', long, help = "Enable polyfill wrapper")]
-    enable_wrapper: bool,
+    // #[arg(short = 'w', long, help = "Enable polyfill wrapper")]
+    // enable_wrapper: bool,
     #[arg(short = 'm', long, help = "Wrapper module name", default_value_t = String::from("callback-wrapper"))]
     wrapper_module_name: String,
     #[arg(short = 'c', long, help = "Callback export name", default_value_t = String::from("go-callback"))]
@@ -66,17 +66,15 @@ fn main() -> anyhow::Result<()> {
     add_bind_function!(linker, wasm_bpf_map_fd_by_name)?;
     add_bind_function!(linker, wasm_bpf_map_operate)?;
 
-    if args.enable_wrapper {
-        add_bind_function_with_module_and_name!(
-            linker,
-            &args.wrapper_module_name,
-            wrapper_poll::bpf_buffer_poll_wrapper,
-            POLL_WRAPPER_FUNCTION_NAME
-        )?;
-        store.data_mut().poll_wrapper = PollWrapper::Enabled {
-            callback_function_name: args.callback_export_name,
-        };
-    }
+    add_bind_function_with_module_and_name!(
+        linker,
+        &args.wrapper_module_name,
+        wrapper_poll::bpf_buffer_poll_wrapper,
+        POLL_WRAPPER_FUNCTION_NAME
+    )?;
+    store.data_mut().poll_wrapper = PollWrapper::Enabled {
+        callback_function_name: args.callback_export_name,
+    };
     // linker.
     linker
         .module(&mut store, MAIN_MODULE_NAME, &main_module)
