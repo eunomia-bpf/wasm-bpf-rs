@@ -24,6 +24,11 @@ impl WrapperObject {
         &mut self.object
     }
 }
+#[derive(Clone, Debug)]
+pub enum PollWrapper {
+    Disabled,
+    Enabled { callback_function_name: String },
+}
 
 pub struct AppState {
     pub wasi: WasiCtx,
@@ -31,6 +36,7 @@ pub struct AppState {
     pub object_map: HashMap<u64, WrapperObject>,
     pub opened_files: Vec<File>,
     pub opened_links: Vec<Link>,
+    pub poll_wrapper: PollWrapper,
 }
 #[allow(unused)]
 struct MyObject {
@@ -46,6 +52,7 @@ impl AppState {
             object_map: Default::default(),
             opened_files: vec![],
             opened_links: vec![],
+            poll_wrapper: PollWrapper::Disabled,
         }
     }
     pub fn get_map_by_fd(&self, fd: i32) -> Option<&Map> {

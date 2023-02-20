@@ -2,26 +2,41 @@ use anyhow::{anyhow, Context};
 use clap::Parser;
 use flexi_logger::Logger;
 use log_format::my_log_format;
-use state::AppState;
+use state::{AppState, PollWrapper};
 use wasmtime::{Engine, Linker, Module, Store};
 use wasmtime_wasi::WasiCtxBuilder;
 
-use crate::func::{load::wasm_load_bpf_object, close::wasm_close_bpf_object, attach::wasm_attach_bpf_program, poll::wasm_bpf_buffer_poll, fd_by_name::wasm_bpf_map_fd_by_name, map_operate::wasm_bpf_map_operate};
+use crate::func::{
+    attach::wasm_attach_bpf_program, close::wasm_close_bpf_object,
+    fd_by_name::wasm_bpf_map_fd_by_name, load::wasm_load_bpf_object,
+    map_operate::wasm_bpf_map_operate, poll::wasm_bpf_buffer_poll, wrapper_poll,
+};
 
-
-
+pub const MAIN_MODULE_NAME: &str = "main";
+pub const POLL_WRAPPER_FUNCTION_NAME:&str = "wasm_bpf_buffer_poll";
 mod func;
 mod log_format;
 mod state;
 mod utils;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = "A WebAssembly runtime for eBPF user-space programs.")]
+#[command(
+    author,
+    version,
+    about,
+    long_about = "A WebAssembly runtime for eBPF user-space programs."
+)]
 struct CommandArgs {
     #[arg(help = "The WebAssembly Module file to run")]
     wasm_module_file: String,
     #[arg(long, help = "Display more logs")]
     verbose: bool,
+    #[arg(short = 'w', long, help = "Enable polyfill wrapper")]
+    enable_wrapper: bool,
+    #[arg(short = 'm', long, help = "Wrapper module name", default_value_t = String::from("callback-wrapper"))]
+    wrapper_module_name: String,
+    #[arg(short = 'c', long, help = "Callback export name", default_value_t = String::from("go-callback"))]
+    callback_export_name: String,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -41,7 +56,7 @@ fn main() -> anyhow::Result<()> {
         .with_context(|| anyhow!("Failed to build Wasi Context"))?
         .build();
     let mut store = Store::new(&engine, AppState::new(wasi));
-    let module = Module::from_file(&engine, args.wasm_module_file)
+    let main_module = Module::from_file(&engine, args.wasm_module_file)
         .with_context(|| anyhow!("Failed to read wasm module file"))?;
 
     add_bind_function!(linker, wasm_load_bpf_object)?;
@@ -51,12 +66,24 @@ fn main() -> anyhow::Result<()> {
     add_bind_function!(linker, wasm_bpf_map_fd_by_name)?;
     add_bind_function!(linker, wasm_bpf_map_operate)?;
 
+    if args.enable_wrapper {
+        add_bind_function_with_module_and_name!(
+            linker,
+            &args.wrapper_module_name,
+            wrapper_poll::bpf_buffer_poll_wrapper,
+            POLL_WRAPPER_FUNCTION_NAME
+        )?;
+        store.data_mut().poll_wrapper = PollWrapper::Enabled {
+            callback_function_name: args.callback_export_name,
+        };
+    }
+    // linker.
     linker
-        .module(&mut store, "", &module)
-        .with_context(|| anyhow!("Failed to link module"))?;
+        .module(&mut store, MAIN_MODULE_NAME, &main_module)
+        .with_context(|| anyhow!("Failed to link main module"))?;
 
     linker
-        .get(&mut store, "", "_start")
+        .get(&mut store, MAIN_MODULE_NAME, "_start")
         .with_context(|| anyhow!("Failed to get _start function"))?
         .into_func()
         .with_context(|| anyhow!("Failed to cast to func"))?

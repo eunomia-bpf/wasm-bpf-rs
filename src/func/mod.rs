@@ -8,6 +8,7 @@ pub mod close;
 pub mod attach;
 pub mod fd_by_name;
 pub mod map_operate;
+pub mod wrapper_poll;
 #[macro_export]
 macro_rules! ensure_program_mut_by_state {
     ($state: expr, $program: expr) => {

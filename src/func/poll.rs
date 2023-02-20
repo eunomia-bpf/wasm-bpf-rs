@@ -11,11 +11,12 @@ use libbpf_rs::libbpf_sys::{
     ring_buffer__poll, BPF_MAP_TYPE_PERF_EVENT_ARRAY, BPF_MAP_TYPE_RINGBUF,
 };
 use log::{debug, error};
+use wasmtime::Val;
 
 use crate::{
     ensure_enough_memory, ensure_program_mut_by_state,
     func::{EINVAL, ENOENT},
-    state::CallerType,
+    state::{CallerType, PollWrapper},
     utils::{CallerUtils, FunctionQuickCall},
 };
 
@@ -57,13 +58,40 @@ extern "C" fn sample_function_wrapper(ctx: *mut c_void, data: *mut c_void, size:
         error!("Failed to write wasm memory: {}", e);
         return 0;
     }
-    if let Err(e) = caller.perform_indirect_call::<SampleCallbackParams, SampleCallbackReturn>(
-        ctx.callback_index,
-        (ctx.wasm_ctx, ctx.raw_wasm_data_buffer, size as u32),
-    ) {
-        error!("Failed to perform indirect call when polling: {}", e);
-        return 0;
+    if let PollWrapper::Enabled {
+        callback_function_name,
+    } = caller.data().poll_wrapper.clone()
+    {
+        let mut result = [Val::I32(0)];
+        if let Err(err) = caller
+            .get_export(&callback_function_name)
+            .unwrap()
+            .into_func()
+            .unwrap()
+            .call(
+                &mut *caller,
+                &[
+                    // Seems that tinygo cannot produce unsigned integer types, so just let wasmtiime to perform the conversion
+                    Val::I32(ctx.wasm_ctx as _),
+                    Val::I32(ctx.raw_wasm_data_buffer as _),
+                    Val::I32(size as _),
+                ],
+                &mut result,
+            )
+        {
+            error!("Failed to call the callback through direct export: {}", err);
+            return 0;
+        }
+    } else {
+        if let Err(e) = caller.perform_indirect_call::<SampleCallbackParams, SampleCallbackReturn>(
+            ctx.callback_index,
+            (ctx.wasm_ctx, ctx.raw_wasm_data_buffer, size as u32),
+        ) {
+            error!("Failed to perform indirect call when polling: {}", e);
+            return 0;
+        }
     }
+
     return 0;
 }
 

@@ -138,14 +138,22 @@ impl FunctionQuickCall for CallerType<'_> {
 
 
 #[macro_export]
-macro_rules! add_bind_function_with_module {
-    ($linker: expr, $module: expr, $func: expr) => {{
+macro_rules! add_bind_function_with_module_and_name {
+    ($linker: expr, $module: expr, $func: expr, $name: expr) => {{
         use anyhow::{anyhow, Context};
         $linker
-            .func_wrap($module, stringify!($func), $func)
+            .func_wrap($module, $name, $func)
             .with_context(|| anyhow!("Failed to register host function `{}`", stringify!($func)))
     }};
 }
+
+#[macro_export]
+macro_rules! add_bind_function_with_module {
+    ($linker: expr, $module: expr, $func: expr) => {
+        add_bind_function_with_module_and_name!($linker, $module, $func , stringify!($func))
+    };
+}
+
 
 #[macro_export]
 macro_rules! add_bind_function {
@@ -153,3 +161,5 @@ macro_rules! add_bind_function {
         add_bind_function_with_module!($linker, "env", $func)
     };
 }
+
+
